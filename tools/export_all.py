@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from wdmpa import WDMPANet
-from wdmpa.models.baselines import MobileNetV3Gaze, ShuffleNetV2Gaze, ResNet50Gaze, L2CSNetSimple
+from wdmpa.models.baselines import MobileNetV3Gaze, ShuffleNetV2Gaze, L2CSNetSimple
 
 
 def export_model(model, name, output_dir, input_size=(224, 224), opset=11):
@@ -74,13 +74,8 @@ def main():
     shufflenet = ShuffleNetV2Gaze(pretrained=True)
     export_model(shufflenet, "shufflenetv2", output_dir)
 
-    # 4. ResNet50
-    print("\n[4/5] ResNet50 (L2CS-style)")
-    resnet = ResNet50Gaze(pretrained=True)
-    export_model(resnet, "resnet50_gaze", output_dir)
-
-    # 5. L2CS-Net
-    print("\n[5/5] L2CS-Net (ResNet50 backbone)")
+    # 4. L2CS-Net (ResNet50 backbone, official pretrained)
+    print("\n[4/4] L2CS-Net (ResNet50 backbone)")
     l2cs = L2CSNetSimple(pretrained=True)
     export_model(l2cs, "l2cs_net", output_dir)
 

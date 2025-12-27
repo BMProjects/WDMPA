@@ -1,220 +1,160 @@
-"""Thermal Stability Test - 10-minute continuous inference with FPS logging.
+#!/usr/bin/env python3
+"""Thermal stability test for Jetson Nano (Python 3.6 compatible).
 
-Tests model performance under sustained load to detect thermal throttling.
+Runs continuous inference for a specified duration and monitors FPS stability.
 
 Usage:
-    python deploy/thermal_stability_test.py --model wdmpa_fold0.onnx --duration 600
+    python thermal_test.py --model wdmpa_fold0.onnx --duration 600
 """
 
+from __future__ import print_function
 import argparse
-import json
-import sys
 import time
-from datetime import datetime
-from pathlib import Path
+import os
+import sys
 
 import numpy as np
 
 
-def run_thermal_test(
-    model_path: str,
-    duration_seconds: int = 600,
-    log_interval: float = 1.0,
-    input_size: tuple = (224, 224),
-    output_dir: str = "deploy/thermal_results",
-) -> dict:
-    """Run thermal stability test.
+def get_temperature():
+    """Get Jetson temperature from thermal zones."""
+    try:
+        temps = []
+        for i in range(10):
+            path = '/sys/devices/virtual/thermal/thermal_zone{}/temp'.format(i)
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    temps.append(int(f.read().strip()) / 1000.0)
+        return max(temps) if temps else -1
+    except Exception:
+        return -1
 
-    Args:
-        model_path: Path to ONNX model.
-        duration_seconds: Test duration in seconds (default: 600 = 10 min).
-        log_interval: Interval between FPS logs in seconds.
-        input_size: Input image size.
-        output_dir: Directory for output files.
 
-    Returns:
-        Dict with test results.
-    """
+def run_thermal_test(model_path, duration_seconds, interval=1.0):
+    """Run thermal stability test."""
     import onnxruntime as ort
-
-    # Setup
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    providers = ort.get_available_providers()
-    if "CUDAExecutionProvider" in providers:
-        provider = ["CUDAExecutionProvider"]
-    else:
-        provider = ["CPUExecutionProvider"]
-
-    print(f"Loading model: {model_path}")
-    print(f"Provider: {provider}")
-    session = ort.InferenceSession(model_path, providers=provider)
-
-    dummy_input = np.random.randn(1, 3, *input_size).astype(np.float32)
-
+    
+    print("Loading model: {}".format(model_path))
+    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    session = ort.InferenceSession(model_path, providers=providers)
+    input_name = session.get_inputs()[0].name
+    
+    dummy_input = np.random.randn(1, 3, 224, 224).astype(np.float32)
+    
     # Warmup
-    print("Warming up (30 iterations)...")
-    for _ in range(30):
-        session.run(None, {"input": dummy_input})
-
-    # Test loop
-    print(f"Starting {duration_seconds}s thermal stability test...")
-    print(f"Logging every {log_interval}s")
-
+    print("Warmup (30 seconds)...")
+    warmup_end = time.time() + 30
+    while time.time() < warmup_end:
+        session.run(None, {input_name: dummy_input})
+    
+    # Main test
+    print("\nStarting thermal test ({} seconds)...".format(duration_seconds))
+    print("-" * 60)
+    print("{:>8} {:>10} {:>10} {:>10}".format("Time(s)", "FPS", "Temp(C)", "Status"))
+    print("-" * 60)
+    
     start_time = time.time()
-    logs = []
+    results = []
+    last_report = start_time
     frame_count = 0
-    interval_start = start_time
-    interval_frames = 0
-
-    try:
-        while True:
-            elapsed = time.time() - start_time
-            if elapsed >= duration_seconds:
-                break
-
-            # Inference
-            session.run(None, {"input": dummy_input})
-            frame_count += 1
-            interval_frames += 1
-
-            # Log FPS periodically
-            interval_elapsed = time.time() - interval_start
-            if interval_elapsed >= log_interval:
-                fps = interval_frames / interval_elapsed
-                logs.append({
-                    "time_s": round(elapsed, 1),
-                    "fps": round(fps, 1),
-                })
-
-                # Print progress
-                progress = elapsed / duration_seconds * 100
-                print(f"[{progress:5.1f}%] Time: {elapsed:6.1f}s | FPS: {fps:5.1f}")
-
-                interval_start = time.time()
-                interval_frames = 0
-
-    except KeyboardInterrupt:
-        print("\nTest interrupted by user.")
-
-    # Final stats
-    total_time = time.time() - start_time
-    avg_fps = frame_count / total_time
-    fps_values = [log["fps"] for log in logs]
-
-    results = {
-        "model": Path(model_path).name,
-        "duration_s": round(total_time, 1),
-        "total_frames": frame_count,
-        "avg_fps": round(avg_fps, 1),
-        "min_fps": round(min(fps_values), 1) if fps_values else 0,
-        "max_fps": round(max(fps_values), 1) if fps_values else 0,
-        "fps_drop_percent": round((1 - min(fps_values) / max(fps_values)) * 100, 1) if fps_values else 0,
-        "logs": logs,
-        "timestamp": datetime.now().isoformat(),
-    }
-
-    # Save results
-    model_name = Path(model_path).stem
-    json_path = output_path / f"thermal_{model_name}.json"
-    with open(json_path, "w") as f:
-        json.dump(results, f, indent=2)
-
-    # Generate plot
-    try:
-        import matplotlib.pyplot as plt
-
-        plt.figure(figsize=(12, 5))
-        times = [log["time_s"] for log in logs]
-        fps_vals = [log["fps"] for log in logs]
-
-        plt.plot(times, fps_vals, "b-", linewidth=1.5, label="FPS")
-        plt.axhline(y=avg_fps, color="r", linestyle="--", label=f"Avg: {avg_fps:.1f}")
-        plt.axhline(y=30, color="g", linestyle=":", label="Real-time (30 FPS)")
-
-        plt.xlabel("Time (seconds)")
-        plt.ylabel("FPS")
-        plt.title(f"Thermal Stability Test: {model_name}")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-
-        plot_path = output_path / f"thermal_{model_name}.png"
-        plt.savefig(plot_path, dpi=150)
-        plt.close()
-        print(f"Plot saved: {plot_path}")
-
-    except ImportError:
-        print("matplotlib not available, skipping plot generation")
-
-    # Summary
-    print("\n" + "=" * 50)
-    print("Thermal Stability Test Results")
-    print("=" * 50)
-    print(f"Model:        {results['model']}")
-    print(f"Duration:     {results['duration_s']}s")
-    print(f"Total Frames: {results['total_frames']}")
-    print(f"Average FPS:  {results['avg_fps']}")
-    print(f"Min FPS:      {results['min_fps']}")
-    print(f"Max FPS:      {results['max_fps']}")
-    print(f"FPS Drop:     {results['fps_drop_percent']}%")
-    print("=" * 50)
-
-    if results["fps_drop_percent"] < 10:
-        print("✓ Excellent thermal stability (< 10% drop)")
-    elif results["fps_drop_percent"] < 20:
-        print("○ Good thermal stability (< 20% drop)")
-    else:
-        print("✗ Significant thermal throttling detected")
-
-    print(f"\nResults saved: {json_path}")
-
+    
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed >= duration_seconds:
+            break
+        
+        # Run inference
+        session.run(None, {input_name: dummy_input})
+        frame_count += 1
+        
+        # Report every interval
+        if time.time() - last_report >= interval:
+            fps = frame_count / (time.time() - last_report)
+            temp = get_temperature()
+            status = "OK" if temp < 70 else "HOT" if temp < 80 else "THROTTLE"
+            
+            print("{:>8.1f} {:>10.1f} {:>10.1f} {:>10}".format(elapsed, fps, temp, status))
+            
+            results.append({
+                'time': elapsed,
+                'fps': fps,
+                'temp': temp,
+            })
+            
+            frame_count = 0
+            last_report = time.time()
+    
     return results
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Thermal Stability Test")
-    parser.add_argument(
-        "--model",
-        type=str,
-        required=True,
-        help="Path to ONNX model",
-    )
-    parser.add_argument(
-        "--duration",
-        type=int,
-        default=600,
-        help="Test duration in seconds (default: 600)",
-    )
-    parser.add_argument(
-        "--interval",
-        type=float,
-        default=1.0,
-        help="Log interval in seconds",
-    )
-    parser.add_argument(
-        "--input-size",
-        type=int,
-        nargs=2,
-        default=[224, 224],
-        help="Input size (H W)",
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="deploy/thermal_results",
-        help="Output directory",
-    )
-    return parser.parse_args()
+def save_results(results, output_dir):
+    """Save results to CSV and generate plot."""
+    import csv
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Save CSV
+    csv_path = os.path.join(output_dir, 'thermal_results.csv')
+    with open(csv_path, 'w') as f:
+        writer = csv.DictWriter(f, fieldnames=['time', 'fps', 'temp'])
+        writer.writeheader()
+        writer.writerows(results)
+    print("\nResults saved to: {}".format(csv_path))
+    
+    # Calculate summary
+    fps_values = [r['fps'] for r in results]
+    temp_values = [r['temp'] for r in results if r['temp'] > 0]
+    
+    print("\n" + "=" * 50)
+    print("Summary")
+    print("=" * 50)
+    print("  Initial FPS:  {:.1f}".format(fps_values[0] if fps_values else 0))
+    print("  Final FPS:    {:.1f}".format(fps_values[-1] if fps_values else 0))
+    print("  FPS Drop:     {:.1f}%".format((1 - fps_values[-1] / fps_values[0]) * 100 if fps_values else 0))
+    print("  Max Temp:     {:.1f} C".format(max(temp_values) if temp_values else 0))
+    
+    # Try to generate plot
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+        
+        times = [r['time'] for r in results]
+        
+        ax1.plot(times, fps_values, 'b-', linewidth=2)
+        ax1.set_ylabel('FPS')
+        ax1.set_title('Thermal Stability Test')
+        ax1.grid(True)
+        
+        ax2.plot(times, temp_values, 'r-', linewidth=2)
+        ax2.set_ylabel('Temperature (C)')
+        ax2.set_xlabel('Time (s)')
+        ax2.axhline(y=70, color='orange', linestyle='--', label='Warning')
+        ax2.axhline(y=80, color='red', linestyle='--', label='Throttle')
+        ax2.grid(True)
+        ax2.legend()
+        
+        plt.tight_layout()
+        plot_path = os.path.join(output_dir, 'thermal_curve.png')
+        plt.savefig(plot_path, dpi=150)
+        print("  Plot saved:   {}".format(plot_path))
+    except ImportError:
+        print("  (matplotlib not available, skipping plot)")
 
 
-if __name__ == "__main__":
-    args = parse_args()
-    run_thermal_test(
-        model_path=args.model,
-        duration_seconds=args.duration,
-        log_interval=args.interval,
-        input_size=tuple(args.input_size),
-        output_dir=args.output,
-    )
+def main():
+    parser = argparse.ArgumentParser(description='Jetson Thermal Test')
+    parser.add_argument('--model', type=str, required=True, help='ONNX model path')
+    parser.add_argument('--duration', type=int, default=600, help='Test duration in seconds')
+    parser.add_argument('--interval', type=float, default=1.0, help='Report interval')
+    parser.add_argument('--output', type=str, default='results', help='Output directory')
+    args = parser.parse_args()
+    
+    results = run_thermal_test(args.model, args.duration, args.interval)
+    save_results(results, args.output)
+
+
+if __name__ == '__main__':
+    main()
