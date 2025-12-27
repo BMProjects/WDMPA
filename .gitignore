@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Training Results & Weights
+runs/
+weights/
+results/
+*.pkl
+*.pth
+*.pt
+*.onnx
+
+# Data
+data/
+datasets/
+*.npy
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# UV lock file (can be included if needed for reproducibility)
+# uv.lock
+
+# Git
+.git/
+*.orig
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
+
+# Documentation builds (if using Sphinx/MkDocs)
+docs/_build/
+site/

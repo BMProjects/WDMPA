@@ -1,0 +1,48 @@
+# MPIIFaceGaze Training Configuration
+# Usage: python tools/train.py --config configs/train_mpiigaze.yaml
+
+# Data
+data:
+  root: datasets/MPIIFaceGaze
+  dataset: mpiigaze
+  fold: 0  # Leave-one-out fold (0-14)
+
+# Model
+model:
+  name: wdmpa_net
+  pretrained: null
+  base_dim: 24
+  depths: [2, 2, 8, 3]
+
+# Training
+train:
+  epochs: 60
+  batch_size: 32
+  lr: 0.0001
+  weight_decay: 0
+  warmup_epochs: 3
+  
+# Optimizer
+optimizer:
+  name: adam
+  betas: [0.9, 0.999]
+
+# Scheduler
+scheduler:
+  name: cosine
+  eta_min_ratio: 0.01
+
+# Loss
+loss:
+  l1_weight: 1.0
+  angular_weight: 0.0
+
+# Output
+output:
+  dir: runs/train
+  name: mpiigaze_fold0
+
+# Hardware
+device: "0"
+workers: 8
+seed: 42
