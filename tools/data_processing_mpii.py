@@ -11,9 +11,9 @@ from core import data_processing_core as dpc
 # ============================================================================
 # Configuration - Update these paths for your system
 # ============================================================================
-root = "/run/media/bm/Data/Data/MPIIFaceGaze"
-sample_root = "/run/media/bm/Data/Data/MPIIGaze/Evaluation Subset/sample list for eye image"
-out_root = "/run/media/bm/Data/Data/MPIIFaceGaze_Processed"
+root = "/home/bm/Data/MPIIFaceGaze"
+sample_root = "/home/bm/Data/MPIIGaze/Evaluation Subset/sample list for eye image"
+out_root = "/home/bm/Data/MPIIFaceGaze_Processed"
 scale = True
 
 def ImageProcessing_MPII():

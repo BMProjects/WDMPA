@@ -1,26 +1,4 @@
-# WDMPA .gitignore
-
-# =============================================================================
-# Paper-related content (Exclude to prevent plagiarism detection issues)
-# =============================================================================
-paper_draft/
-ref/
-docs/
-
-# =============================================================================
-# Large files (Too large for GitHub)
-# =============================================================================
-weights/
-deploy/onnx/
-deploy/engines/
-deploy/results/
-*.pkl
-*.pth
-*.pt
-
-# =============================================================================
 # Python
-# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,53 +9,57 @@ dist/
 build/
 *.egg
 
-# Virtual environments
+# Virtual Environment
 .venv/
 venv/
 ENV/
+env/
 
-# =============================================================================
+# Training Results & Weights
+runs/
+weights/
+results/
+*.pkl
+*.pth
+*.pt
+*.onnx
+
+# Data
+data/
+datasets/
+*.npy
+
+# Logs
+*.log
+logs/
+
 # IDE
-# =============================================================================
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
 
-# Jupyter
-.ipynb_checkpoints/
-
-# =============================================================================
-# Data
-# =============================================================================
-datasets/
-/data/
-
-# =============================================================================
-# Runtime outputs
-# =============================================================================
-runs/
-outputs/
-logs/
-
-# TensorRT
-*.engine
-*.trt
-
-# ONNX (generated)
-*.onnx
-
-# =============================================================================
 # OS
-# =============================================================================
 .DS_Store
 Thumbs.db
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
 
-# Mypy
-.mypy_cache/
+# UV lock file (can be included if needed for reproducibility)
+# uv.lock
+
+# Git
+.git/
+*.orig
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
+
+# Documentation builds (if using Sphinx/MkDocs)
+docs/_build/
+site/

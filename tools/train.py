@@ -13,8 +13,9 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 
 
@@ -25,6 +26,23 @@ sys.path.insert(0, str(ROOT))
 from wdmpa import WDMPANet
 from wdmpa.data import MPIIGazeDataset, Gaze360Dataset, create_dataloader
 from wdmpa.utils import GazeLoss, angular_error
+from wdmpa.models.baselines import MobileNetV3Gaze, ShuffleNetV2Gaze
+from wdmpa.models.ablation import WDMPANetAblation
+
+
+# Supported models
+MODEL_REGISTRY = {
+    "wdmpa": lambda: WDMPANet(),
+    "mobilenetv3": lambda: MobileNetV3Gaze(),
+    "shufflenetv2": lambda: ShuffleNetV2Gaze(),
+    # Ablation variants
+    "wdmpa_awwd_fixed": lambda: WDMPANetAblation(downsample_type="awwd_fixed", attention_type="mpa"),
+    "wdmpa_stride_conv": lambda: WDMPANetAblation(downsample_type="stride_conv", attention_type="mpa"),
+    "wdmpa_channel_only": lambda: WDMPANetAblation(downsample_type="awwd", attention_type="channel"),
+    "wdmpa_spatial_only": lambda: WDMPANetAblation(downsample_type="awwd", attention_type="spatial"),
+    "wdmpa_single_scale": lambda: WDMPANetAblation(downsample_type="awwd", attention_type="single"),
+    "wdmpa_no_attention": lambda: WDMPANetAblation(downsample_type="awwd", attention_type="none"),
+}
 
 
 def parse_args():
@@ -40,11 +58,17 @@ def parse_args():
 
     # Training
     parser.add_argument("--epochs", type=int, default=60, help="Number of epochs")
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--weight-decay", type=float, default=0, help="Weight decay")
+    parser.add_argument("--batch-size", type=int, default=512, help="Batch size (optimized for RTX 4090)")
+    parser.add_argument("--lr", type=float, default=1.6e-3, help="Learning rate (scaled for batch 512)")
+    parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay (AdamW default: 0.01)")
+    parser.add_argument("--warmup-epochs", type=int, default=8, help="Warmup epochs for large batch")
+    parser.add_argument("--amp", action="store_true", default=True, help="Use mixed precision training")
+    parser.add_argument("--optimizer", type=str, default="adamw", choices=["adam", "adamw"], help="Optimizer type")
 
     # Model
+    parser.add_argument("--model", type=str, default="wdmpa",
+                        choices=list(MODEL_REGISTRY.keys()),
+                        help="Model to train")
     parser.add_argument("--pretrained", type=str, default=None,
                         help="Path to pretrained weights")
 
@@ -55,7 +79,8 @@ def parse_args():
 
     # Device
     parser.add_argument("--device", type=str, default="0", help="CUDA device(s)")
-    parser.add_argument("--workers", type=int, default=4, help="DataLoader workers")
+    parser.add_argument("--workers", type=int, default=12, help="DataLoader workers (optimized for RTX 4090)")
+    parser.add_argument("--prefetch-factor", type=int, default=4, help="Batches to prefetch per worker")
 
     return parser.parse_args()
 
@@ -67,6 +92,8 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     epoch: int,
+    scaler: GradScaler = None,
+    use_amp: bool = False,
 ) -> dict:
     """Train for one epoch."""
     model.train()
@@ -78,14 +105,24 @@ def train_one_epoch(
         images = images.to(device)
         labels = labels.to(device)
 
-        # Forward
-        pred = model(images)
-        loss, loss_dict = criterion(pred, labels)
-
-        # Backward
+        # Forward with AMP
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        
+        if use_amp and scaler is not None:
+            with autocast('cuda'):
+                pred = model(images)
+                loss, loss_dict = criterion(pred, labels)
+            
+            # Backward with gradient scaling
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            # Standard training
+            pred = model(images)
+            loss, loss_dict = criterion(pred, labels)
+            loss.backward()
+            optimizer.step()
 
         # Stats
         batch_size = images.size(0)
@@ -153,13 +190,14 @@ def main():
         train_dataset = Gaze360Dataset(args.data_root, label_file="Label/train.label")
         val_dataset = Gaze360Dataset(args.data_root, label_file="Label/val.label")
 
-    train_loader = create_dataloader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers)
-    val_loader = create_dataloader(val_dataset, args.batch_size, shuffle=False, num_workers=args.workers)
+    train_loader = create_dataloader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, prefetch_factor=args.prefetch_factor)
+    val_loader = create_dataloader(val_dataset, args.batch_size, shuffle=False, num_workers=args.workers, prefetch_factor=args.prefetch_factor)
 
     print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
 
     # Model
-    model = WDMPANet()
+    print(f"Creating model: {args.model}")
+    model = MODEL_REGISTRY[args.model]()
     if args.pretrained:
         print(f"Loading pretrained: {args.pretrained}")
         state = torch.load(args.pretrained, map_location="cpu", weights_only=False)
@@ -171,15 +209,38 @@ def main():
 
     # Loss, optimizer, scheduler
     criterion = GazeLoss(l1_weight=1.0, angular_weight=0.0)
-    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.lr * 0.01)
+    
+    # Optimizer selection
+    if args.optimizer == "adamw":
+        optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        print(f"Using AdamW optimizer (lr={args.lr}, wd={args.weight_decay})")
+    else:
+        optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        print(f"Using Adam optimizer (lr={args.lr}, wd={args.weight_decay})")
+    
+    # Scheduler with warmup
+    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs, eta_min=args.lr * 0.01)
+    
+    # AMP scaler
+    scaler = GradScaler('cuda') if args.amp else None
+    if args.amp:
+        print("Mixed precision training enabled (AMP)")
 
     # Training loop
     best_error = float("inf")
     for epoch in range(1, args.epochs + 1):
-        train_stats = train_one_epoch(model, train_loader, criterion, optimizer, device, epoch)
+        # Warmup learning rate
+        if epoch <= args.warmup_epochs:
+            warmup_lr = args.lr * epoch / args.warmup_epochs
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = warmup_lr
+        
+        train_stats = train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, scaler, args.amp)
         val_stats = validate(model, val_loader, criterion, device)
-        scheduler.step()
+        
+        # Step scheduler after warmup
+        if epoch > args.warmup_epochs:
+            scheduler.step()
 
         # Log
         lr = optimizer.param_groups[0]["lr"]

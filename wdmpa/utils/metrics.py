@@ -15,15 +15,21 @@ def gaze_to_3d(gaze: torch.Tensor) -> torch.Tensor:
 
     Returns:
         3D gaze vector of shape (..., 3).
+    
+    Note:
+        Uses MPIIGaze standard coordinate system:
+        - pitch: vertical angle (up/down)
+        - yaw: horizontal angle (left/right)
     """
     # Convert to radians
     pitch = gaze[..., 0] * torch.pi / 180
     yaw = gaze[..., 1] * torch.pi / 180
 
-    # Convert to 3D direction
-    x = -torch.cos(yaw) * torch.sin(pitch)
-    y = -torch.sin(yaw)
-    z = -torch.cos(yaw) * torch.cos(pitch)
+    # Convert to 3D direction (MPIIGaze standard)
+    # x: horizontal (left-right), y: vertical (up-down), z: depth
+    x = -torch.cos(pitch) * torch.sin(yaw)
+    y = -torch.sin(pitch)
+    z = -torch.cos(pitch) * torch.cos(yaw)
 
     return torch.stack([x, y, z], dim=-1)
 

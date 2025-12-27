@@ -198,6 +198,7 @@ def create_dataloader(
     shuffle: bool = True,
     num_workers: int = 4,
     pin_memory: bool = True,
+    prefetch_factor: int = 4,
 ) -> DataLoader:
     """Create a DataLoader with sensible defaults.
 
@@ -207,6 +208,7 @@ def create_dataloader(
         shuffle: Whether to shuffle. Default: True.
         num_workers: Number of worker processes. Default: 4.
         pin_memory: Pin memory for faster GPU transfer. Default: True.
+        prefetch_factor: Number of batches to prefetch per worker. Default: 4.
 
     Returns:
         DataLoader instance.
@@ -217,5 +219,6 @@ def create_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=pin_memory,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
         drop_last=shuffle,  # Drop last incomplete batch for training
     )

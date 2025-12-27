@@ -11,8 +11,8 @@ from core import data_processing_core as dpc
 # ============================================================================
 # Configuration - Update these paths for your system
 # ============================================================================
-root = "/run/media/bm/Data/Data/Gaze360/"
-out_root = "/run/media/bm/Data/Data/Gaze360_Processed"
+root = "/home/bm/Data/Gaze360/"
+out_root = "/home/bm/Data/Gaze360_Processed"
 
 def ImageProcessing_Gaze360():
     msg = sio.loadmat(os.path.join(root, "metadata.mat"))
