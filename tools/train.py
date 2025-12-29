@@ -26,8 +26,9 @@ sys.path.insert(0, str(ROOT))
 from wdmpa import WDMPANet
 from wdmpa.data import MPIIGazeDataset, Gaze360Dataset, create_dataloader
 from wdmpa.utils import GazeLoss, angular_error
-from wdmpa.models.baselines import MobileNetV3Gaze, ShuffleNetV2Gaze
+from wdmpa.models.baselines import MobileNetV3Gaze, ShuffleNetV2Gaze, L2CSNet
 from wdmpa.models.ablation import WDMPANetAblation
+
 
 
 # Supported models
@@ -35,6 +36,7 @@ MODEL_REGISTRY = {
     "wdmpa": lambda: WDMPANet(),
     "mobilenetv3": lambda: MobileNetV3Gaze(),
     "shufflenetv2": lambda: ShuffleNetV2Gaze(),
+    "l2cs": lambda: L2CSNet(),
     # Ablation variants
     "wdmpa_awwd_fixed": lambda: WDMPANetAblation(downsample_type="awwd_fixed", attention_type="mpa"),
     "wdmpa_stride_conv": lambda: WDMPANetAblation(downsample_type="stride_conv", attention_type="mpa"),
@@ -43,6 +45,7 @@ MODEL_REGISTRY = {
     "wdmpa_single_scale": lambda: WDMPANetAblation(downsample_type="awwd", attention_type="single"),
     "wdmpa_no_attention": lambda: WDMPANetAblation(downsample_type="awwd", attention_type="none"),
 }
+
 
 
 def parse_args():
@@ -111,6 +114,20 @@ def train_one_epoch(
         if use_amp and scaler is not None:
             with autocast('cuda'):
                 pred = model(images)
+                # Handle L2CS-Net output (returns tuple of yaw, pitch logits)
+                if isinstance(pred, tuple):
+                    # L2CS returns (yaw_logits, pitch_logits), need to convert to angles
+                    # For now, just stack them as [B, 2]
+                    pred = torch.stack(pred, dim=-1)  # [B, num_bins] x2 -> [B, 2, num_bins]
+                    # Use the logits mean or implement proper soft-argmax
+                    # Simplified: use argmax to get bin index, convert to angle
+                    yaw_idx = pred[:, 0, :].argmax(dim=1)
+                    pitch_idx = pred[:, 1, :].argmax(dim=1)
+                    # Convert bin to angle (90 bins: -45 to +45 degrees)
+                    pred = torch.stack([
+                        (pitch_idx - 45) * (90.0 / 90),  # pitch in degrees
+                        (yaw_idx - 45) * (90.0 / 90)      # yaw in degrees
+                    ], dim=1)
                 loss, loss_dict = criterion(pred, labels)
             
             # Backward with gradient scaling
@@ -120,6 +137,14 @@ def train_one_epoch(
         else:
             # Standard training
             pred = model(images)
+            # Handle L2CS-Net output
+            if isinstance(pred, tuple):
+                yaw_idx = pred[0].argmax(dim=1)
+                pitch_idx = pred[1].argmax(dim=1)
+                pred = torch.stack([
+                    (pitch_idx - 45) * (90.0 / 90),
+                    (yaw_idx - 45) * (90.0 / 90)
+                ], dim=1)
             loss, loss_dict = criterion(pred, labels)
             loss.backward()
             optimizer.step()
@@ -152,6 +177,14 @@ def validate(
         labels = labels.to(device)
 
         pred = model(images)
+        # Handle L2CS-Net output
+        if isinstance(pred, tuple):
+            yaw_idx = pred[0].argmax(dim=1)
+            pitch_idx = pred[1].argmax(dim=1)
+            pred = torch.stack([
+                (pitch_idx - 45) * (90.0 / 90),
+                (yaw_idx - 45) * (90.0 / 90)
+            ], dim=1)
         loss, _ = criterion(pred, labels)
 
         errors = angular_error(pred, labels)
