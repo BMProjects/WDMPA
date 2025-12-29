@@ -16,12 +16,15 @@ ENV/
 env/
 
 # Training Results & Weights (EXCLUDE)
-/runs/  # Exclude only root runs directory
+/runs/              # Exclude only /runs/ in root
+!test_runs/         # Include test_runs/ for verification
 weights/
 *.pkl
 *.pth
 *.pt
 *.onnx
+!test_runs/**/*.log    # But include log files in test_runs
+!test_runs/**/events.* # And tensorboard events
 
 # Experiment Data (INCLUDE - for remote analysis)
 # results/ directory is tracked
@@ -67,4 +70,3 @@ Thumbs.db
 docs/_build/
 site/
 docs/
-!test_runs/
