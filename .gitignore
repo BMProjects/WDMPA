@@ -16,7 +16,7 @@ ENV/
 env/
 
 # Training Results & Weights (EXCLUDE)
-runs/
+/runs/  # Exclude only root runs directory
 weights/
 *.pkl
 *.pth
@@ -67,3 +67,4 @@ Thumbs.db
 docs/_build/
 site/
 docs/
+!test_runs/
