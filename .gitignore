@@ -66,3 +66,4 @@ Thumbs.db
 # Documentation builds (if using Sphinx/MkDocs)
 docs/_build/
 site/
+docs/
