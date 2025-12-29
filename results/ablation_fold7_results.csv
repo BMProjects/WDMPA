@@ -1,0 +1,4 @@
+model,fold,best_error,final_error,timestamp
+wdmpa_awwd_fixed,7,5.58,5.64,20251227_174423
+wdmpa_stride_conv,7,5.90,6.00,20251227_180704
+wdmpa_channel_only,7,5.44,5.58,20251227_182859

@@ -15,14 +15,17 @@ venv/
 ENV/
 env/
 
-# Training Results & Weights
+# Training Results & Weights (EXCLUDE)
 runs/
 weights/
-results/
 *.pkl
 *.pth
 *.pt
 *.onnx
+
+# Experiment Data (INCLUDE - for remote analysis)
+# results/ directory is tracked
+
 
 # Data
 data/
