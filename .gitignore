@@ -16,18 +16,20 @@ ENV/
 env/
 
 # Training Results & Weights (EXCLUDE)
-/runs/              # Exclude only /runs/ in root
-!test_runs/         # Include test_runs/ for verification
+/runs/
+/test_runs/
 weights/
 *.pkl
 *.pth
 *.pt
 *.onnx
-!test_runs/**/*.log    # But include log files in test_runs
-!test_runs/**/events.* # And tensorboard events
+*.ckpt
+*.engine
 
-# Experiment Data (INCLUDE - for remote analysis)
-# results/ directory is tracked
+# Experiment Data
+/results/
+/experiment_export_*/
+/ref/
 
 
 # Data

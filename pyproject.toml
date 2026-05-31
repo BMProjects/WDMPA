@@ -50,9 +50,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/username/wdmpa"
-Documentation = "https://github.com/username/wdmpa#readme"
-Repository = "https://github.com/username/wdmpa.git"
+Homepage = "https://github.com/BMProjects/WDMPA"
+Documentation = "https://github.com/BMProjects/WDMPA#readme"
+Repository = "https://github.com/BMProjects/WDMPA.git"
 
 [tool.setuptools.packages.find]
 where = ["."]
